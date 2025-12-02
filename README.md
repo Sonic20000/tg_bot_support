@@ -84,3 +84,11 @@ FSMContext для рассылки
 Логирование через logging
 
 Хранение данных в JSON
+
+УСТАНОВКА
+
+Склонировать репозиторий
+
+chmod +x install_bot.sh
+sudo ./install_bot.sh
+
