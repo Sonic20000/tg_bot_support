@@ -54,8 +54,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Токены и ID
-BOT_TOKEN = "" # Обязательно в кавычках
-SUPPORT_GROUP_ID =  # ID группы с темами
+BOT_TOKEN = "" # Указывать в кавычках обязательно
+SUPPORT_GROUP_ID = -100*********  # ID группы с темами
 ADMIN_IDS = [12345678]  # ID админов
 
 # Инициализация бота
@@ -315,6 +315,7 @@ async def cmd_close_thread(message: types.Message):
 
         # Помечаем как закрытую
         thread_info.is_active = False
+        thread_info.thread_id = None
         save_data()
 
         # Уведомляем пользователя
@@ -583,38 +584,50 @@ async def cmd_broadcast_confirm(message: types.Message, state: FSMContext):
     await state.clear()
 
 
-# ========== ОБРАБОТКА СООБЩЕНИЙ ОТ ПОЛЬЗОВАТЕЛЕЙ ==========
-
 @dp.message(F.chat.type == "private", ~F.from_user.id.in_(ADMIN_IDS))
 async def handle_user_message(message: types.Message):
     """Обработка сообщений от обычных пользователей в личке"""
     
+    # игнорируем команды от юзера
     if message.text and message.text.startswith('/'):
         await message.answer("Просто напишите ваш вопрос, и я помогу связать вас с поддержкой!")
         return
     
     user_id = message.from_user.id
-    
     logger.info(f"Сообщение от пользователя {user_id}")
     
-    # Создаем или получаем тему пользователя
-    if user_id not in user_threads:
-        await create_user_thread(user_id, message)
-    
-    thread = user_threads[user_id]
-    
-    # Если тема не создана
-    if not thread.thread_id:
-        await create_user_thread(user_id, message)
-        thread = user_threads[user_id]
-    
-    # Отправляем сообщение в тему
+    thread = user_threads.get(user_id)
+
+    # 1) Нет записи вообще → создаём новую тему
+    if not thread:
+        thread = await create_user_thread(user_id, message)
+
+    # 2) Есть запись, но тема уже закрыта → создаём НОВУЮ тему
+    elif not thread.is_active:
+        logger.info(f"Старая тема пользователя {user_id} закрыта, создаю новую")
+        thread = await create_user_thread(user_id, message)
+
+    # 3) Есть запись, но по какой-то причине нет thread_id → создаём новую
+    elif not thread.thread_id:
+        logger.info(f"У пользователя {user_id} нет thread_id, создаю новую тему")
+        thread = await create_user_thread(user_id, message)
+
+    # Отправляем сообщение в (актуальную) тему
     await send_to_thread(thread, message)
     
     # Обновляем данные
     thread.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     thread.message_count += 1
     save_data()
+    
+    # Подтверждение пользователю
+    await message.answer(
+        "✅ <b>Сообщение отправлено!</b>\n\n"
+        "Операторы уже видят ваш вопрос и скоро ответят.\n"
+        "Все ответы придут сюда, в этот чат.",
+        parse_mode="HTML"
+    )
+
     
     # Подтверждение пользователю
     await message.answer(
